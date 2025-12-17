@@ -1,1 +1,234 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Timetable Viewer</title>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+
+        table {
+            width: 90%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+
+        th, td {
+            border: 1px solid black;
+            padding: 8px;
+            text-align: center;
+            vertical-align: middle;
+            min-height: 60px;
+        }
+
+        th {
+            background-color: lightblue;
+        }
+
+        .title {
+            font-size: 22px;
+            font-weight: bold;
+            margin-top: 30px;
+        }
+
+        input, select {
+            padding: 6px;
+            margin-right: 10px;
+            margin-top: 10px;
+        }
+
+        .highlight {
+            background-color: yellow;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+
+<h2>Timetable Viewer</h2>
+
+<input type="file" id="csvFile" accept=".csv">
+<br><br>
+
+<select id="viewMode">
+    <option value="faculty">Faculty Wise</option>
+    <option value="batch">Batch Wise</option>
+</select>
+
+<input type="text" id="searchBox" placeholder="Search...">
+
+<select id="mainSelect"></select>
+
+<div id="tables"></div>
+
+<script>
+let facultyTT = {};
+let batchTT = {};
+
+function normalize(s) {
+    return s.toLowerCase().replace(/\s+/g, '');
+}
+
+/* ===== CSV READ ===== */
+csvFile.addEventListener("change", function () {
+    Papa.parse(this.files[0], {
+        header: true,
+        skipEmptyLines: true,
+        complete: res => {
+            facultyTT = {};
+            batchTT = {};
+            buildData(res.data);
+            populateDropdown();
+            buildAllTables();   // DEFAULT SHOW ALL
+        }
+    });
+});
+
+/* ===== BUILD DATA ===== */
+function buildData(data) {
+    data.forEach(row => {
+        let faculty="", day="", session="", batch="", course="", room="";
+
+        for (let k in row) {
+            const key = normalize(k);
+            if (key.includes("faculty") || key.includes("staff")) faculty = row[k];
+            if (key === "day") day = row[k];
+            if (key.includes("session")) session = row[k];
+            if (key.includes("batch") || key.includes("section")) batch = row[k];
+            if (key.includes("course") || key.includes("subject")) course = row[k];
+            if (key.includes("room")) room = row[k];
+        }
+
+        if (!day || !session) return;
+
+        day = day.toUpperCase().substring(0,3);
+        session = session.toUpperCase();
+
+        if (faculty) {
+            facultyTT[faculty] ??= {};
+            facultyTT[faculty][day] ??= { FN:"", AN:"" };
+            facultyTT[faculty][day][session] =
+                `${batch}<br>${course}<br>${faculty}<br>Room: ${room}`;
+        }
+
+        if (batch) {
+            batchTT[batch] ??= {};
+            batchTT[batch][day] ??= { FN:"", AN:"" };
+            batchTT[batch][day][session] =
+                `${course}<br>${faculty}<br>Room: ${room}`;
+        }
+    });
+}
+
+/* ===== DROPDOWN ===== */
+function populateDropdown() {
+    const mode = viewMode.value;
+    mainSelect.innerHTML = "";
+
+    const allOpt = document.createElement("option");
+    allOpt.value = "__ALL__";
+    allOpt.textContent = mode === "faculty" ? "ALL FACULTY" : "ALL BATCHES";
+    mainSelect.appendChild(allOpt);
+
+    const source = mode === "faculty" ? facultyTT : batchTT;
+
+    Object.keys(source).sort().forEach(v => {
+        const opt = document.createElement("option");
+        opt.value = v;
+        opt.textContent = v;
+        mainSelect.appendChild(opt);
+    });
+}
+
+/* ===== VIEW MODE CHANGE ===== */
+viewMode.addEventListener("change", () => {
+    populateDropdown();
+    buildAllTables();
+});
+
+/* ===== SEARCH ===== */
+searchBox.addEventListener("input", function () {
+    const q = this.value.toLowerCase();
+    [...mainSelect.options].forEach(o => {
+        if (o.value === "__ALL__") return;
+        o.hidden = !o.value.toLowerCase().includes(q);
+    });
+});
+
+/* ===== SELECT ===== */
+mainSelect.addEventListener("change", function () {
+    if (this.value === "__ALL__") {
+        buildAllTables();
+    } else {
+        buildSingleTable(this.value);
+    }
+});
+
+/* ===== BUILD ALL TABLES ===== */
+function buildAllTables() {
+    tables.innerHTML = "";
+    const source = viewMode.value === "faculty" ? facultyTT : batchTT;
+
+    Object.keys(source).sort().forEach(name => {
+        buildSingleTable(name, true);
+    });
+}
+
+/* ===== BUILD SINGLE TABLE ===== */
+function buildSingleTable(name, append=false) {
+    const mode = viewMode.value;
+    const data = (mode === "faculty" ? facultyTT : batchTT)[name];
+    const days = ["MON","TUE","WED","THU","FRI","SAT"];
+
+    if (!append) tables.innerHTML = "";
+
+    const title = document.createElement("div");
+    title.className = "title";
+    title.innerHTML = `${mode === "faculty" ? "Faculty" : "Batch"}: ${name}`;
+
+    const table = document.createElement("table");
+
+    let html = `
+        <tr>
+            <th>DAY</th>
+            <th>FN</th>
+            <th>LUNCH</th>
+            <th>AN</th>
+        </tr>`;
+
+    days.forEach((d,i) => {
+        html += `<tr>
+            <td>${d}</td>
+            <td class="fn">${data[d]?.FN || ""}</td>`;
+        if (i === 0) html += `<td rowspan="6">L<br>U<br>N<br>C<br>H</td>`;
+        html += `<td class="an">${data[d]?.AN || ""}</td></tr>`;
+    });
+
+    table.innerHTML = html;
+    tables.appendChild(title);
+    tables.appendChild(table);
+
+    /* ===== HIGHLIGHT ===== */
+    table.querySelectorAll("td.fn, td.an").forEach(cell => {
+        const text = cell.innerText.trim();
+        if (!text) return;
+
+        if (mode === "batch") {
+            cell.classList.add("highlight");
+        }
+
+        if (mode === "faculty" && text.includes("VI-SU-B2")) {
+            cell.classList.add("highlight");
+        }
+    });
+}
+</script>
+
+</body>
+</html>
 
